@@ -16,6 +16,12 @@ class Budget(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    class Meta():
+        ## Django는 복합키 지원 안하는데 적용하는 방법.
+        constraints = [
+                models.UniqueConstraint(fields=['user', 'category'], name='unique_user_category'),
+            ]
+    
 
 CATEGORIES={
     "undefined": 1,
