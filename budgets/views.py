@@ -87,3 +87,60 @@ class BudgetsView(APIView):
         ## 원래거 전체 삭제하고 전체 싹다 받아서 해야하나요
         pass
 
+
+class BudgetRecommendView(APIView):
+    permission_classes = [IsAuthenticated, ]
+    
+    def get(self, request):
+        '''
+        스타일로 입력할 수 있는 값의 목록을 전달합니다.
+        '''
+        return Response({
+            "message": "recommend styles",
+            "data": REC_LIST},
+            status=status.HTTP_200_OK)
+    
+    def post(self, request):
+        '''
+        선택한 스타일로 예산을 설정합니다.
+        '''
+        total = request.data.get("total")
+        style = request.data.get("style", REC_LIST[0])
+        user = request.user
+        result = []
+        total_serializer = UserTotalUpdateSerializer(data={"total": total})
+        if total_serializer.is_valid():
+            print('here!')
+            user = total_serializer.update(user, total_serializer.validated_data)
+                
+        print(user.username, user.total)
+        if style in REC_LIST:
+            for budget in BUDGET_REC_RATIO.get(style):
+                budget["user"] = user.pk
+                ratio = budget.get("ratio")
+                print(round(user.total * ratio / 100, -1))
+                budget["amount"] = int(round(user.total * ratio / 100, -1)) # 10의자리에서 반올림
+                print(budget)
+                serializer = BudgetCreateSerializer(data=budget)
+                if serializer.is_valid():
+                    result.append(serializer.create(serializer.validated_data).pk)
+            
+            
+            return Response(
+                {
+                    "message": "suceess!",
+                    "setup_user": user.pk,
+                    "setup_user_total": user.total,
+                    "data": result
+                },
+                status=status.HTTP_201_CREATED
+                )
+            
+        return Response({"message": "failed."}, status=status.HTTP_400_BAD_REQUEST)
+        
+    
+    def patch(self, requset):
+        '''
+        예산 수정
+        '''
+        pass
