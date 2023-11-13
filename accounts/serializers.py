@@ -39,3 +39,12 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError('A user with this email and password was not found')
         
         return {'username': user.username, 'user': user}
+    
+
+class UserTotalUpdateSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    
+    def update(self, instance, validated_data):
+        instance.total = validated_data.get('total', instance.total)
+        instance.save()
+        return instance
