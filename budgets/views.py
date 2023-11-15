@@ -12,17 +12,6 @@ from budgets.models import Budget, Category, REC_LIST, BUDGET_REC_RATIO
 from budgets.serializers import CategorySerializer, BudgetSerializer
 
 
-class CategoryListView(ListAPIView):
-    '''
-    method: GET
-    소비 카테고리 리스트 반환
-    '''
-    permission_classes = [AllowAny,]
-    # permission_classes = [IsAuthenticated,]
-    
-    serializer_class = CategorySerializer
-    queryset = Category.objects.all().order_by('id')
-
 
 class BudgetsView(APIView):
     '''
@@ -98,14 +87,16 @@ class BudgetsView(APIView):
         '''
         예산 수정
         '''
-        ## 1개의 레코드만 선택적으로 수정한다고 가정. 0으로 변경하는 것도 가능
+        ## 1개의 레코드만 선택적으로 수정한다고 가정.
+        ## TODO - 카테고리가 없는 부분에 대해서 처리가 부족.
         data = request.data
         user = request.user
         queryset = Budget.objects.filter(user=user.pk)
         budget_list = list(queryset)
         
         if data.get("category", None) is None:
-            return Response({"message": "no content!"}, status=status.HTTP_204_NO_CONTENT)
+            # raise ValueError("message: no content!") ## 기능이 동작하는 도중에 알려주는 용도?
+            return Response({"message": "no content!"}, status=status.HTTP_204_NO_CONTENT) ## 여기서 끝나야 할 때
         
         if not budget_list:
             return Response({"message": f"failed! {user.username} has no budgets"}, status=status.HTTP_404_NOT_FOUND)
@@ -120,7 +111,6 @@ class BudgetsView(APIView):
             new_total = user.total - change_amount
             total_serializer = UserTotalUpdateSerializer(data={"total": new_total})
             if total_serializer.is_valid():
-                print('here!')
                 user = total_serializer.update(user, total_serializer.validated_data)
             
             return Response({"message": "success!", "data": f"Budget[{instance.pk}] - category{instance.category.name} is changed.({instance.amount})"}, status=status.HTTP_200_OK)
@@ -149,8 +139,7 @@ class BudgetRecommendView(APIView):
         total_serializer = UserTotalUpdateSerializer(data={"total": total})
         if total_serializer.is_valid():
             user = total_serializer.update(user, total_serializer.validated_data)
-                
-        print(user.username, user.total)
+            
         if style in REC_LIST:
             for budget in BUDGET_REC_RATIO.get(style):
                 budget["user"] = user.pk
@@ -200,7 +189,8 @@ class BudgetRecommendView(APIView):
         if new_style in REC_LIST:
             update_list = BUDGET_REC_RATIO[new_style]
             check_list = [b.get("category") for b in update_list]
-            print(check_list)
+            
+            # 있는데 없어지거나 변경되는 경우
             for new_data in update_list:
                 for budget in budget_list:
                     if budget.category.pk == new_data.get("category"):
@@ -217,6 +207,7 @@ class BudgetRecommendView(APIView):
                         if serializer.is_valid():
                             serializer.update(budget, serializer.validated_data)
             
+            ## 없다가 새로 생기는 경우
             for d in update_list:
                 if d.get("checked", None) is None:
                     d["user"] = user.pk
