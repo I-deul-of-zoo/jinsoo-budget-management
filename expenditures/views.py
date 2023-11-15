@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
@@ -56,11 +56,20 @@ class ExpenditureView(APIView):
         '''
         상세보기
         '''
+        expend = get_object_or_404(Expenditure, pk=ex_pk)
+        serializer = ExpenditureCreateSerializer(expend)
+        
+        return Response({"message": "sucess!", "data": serializer.data}, status=status.HTTP_200_OK)
+    
+    def put(self, request, ex_pk):
+        '''
+        전체수정
+        '''
         pass
     
     def patch(self, request, ex_pk):
         '''
-        수정
+        부분수정
         '''
         pass
     
