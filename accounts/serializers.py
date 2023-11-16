@@ -47,10 +47,11 @@ class LoginSerializer(serializers.Serializer):
         return {'username': user.username, 'user': user}
     
 
-class UserTotalUpdateSerializer(serializers.Serializer):
+class UserParamUpdateSerializer(serializers.Serializer):
     total = serializers.IntegerField()
     
     def update(self, instance, validated_data):
         instance.total = validated_data.get('total', instance.total)
+        instance.start_date = validated_data.get('start_date', instance.total)
         instance.save()
         return instance

@@ -7,11 +7,17 @@ from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
 
-from accounts.serializers import UserTotalUpdateSerializer
+from accounts.serializers import UserParamUpdateSerializer
 from budgets.models import Budget, Category, REC_LIST, BUDGET_REC_RATIO
 from budgets.serializers import CategorySerializer, BudgetSerializer
 
 
+
+def update_user_parameter(total, start):
+    total_serializer = UserParamUpdateSerializer(data={"total": total, "start_date": start})
+    if total_serializer.is_valid():
+        user = total_serializer.update(user, total_serializer.validated_data)
+    return None
 
 class BudgetsView(APIView):
     '''
@@ -38,11 +44,12 @@ class BudgetsView(APIView):
         '''
         data = request.data
         budget_list = data.get('budget_list', None)
+        start_date = data.get("start_date", None)
         result = []
         total = 0
         user = request.user
         
-        ## 중복입력처리 view에서 >> TODO - serializer에서 하는 방법 알아보기
+        ## TODO - 중복입력처리 view에서 >>  serializer에서 하는 방법 알아보기
         try:
             check_list = [budget.get("category") for budget in budget_list]
             for ch in check_list:
@@ -70,9 +77,7 @@ class BudgetsView(APIView):
         # except:
         #     return Response({"message": "error", "error": serializer.errors})
         
-        total_serializer = UserTotalUpdateSerializer(data={'total': total})
-        if total_serializer.is_valid():
-            user = total_serializer.update(user, total_serializer.validated_data)
+        update_user_parameter(total=total, satrt=start_date)
 
         return Response({
             "message": "budget create success!",
@@ -91,6 +96,7 @@ class BudgetsView(APIView):
         ## TODO - 카테고리가 없는 부분에 대해서 처리가 부족.
         data = request.data
         user = request.user
+        start_date = data.get("start_date", None)
         queryset = Budget.objects.filter(user=user.pk)
         budget_list = list(queryset)
         
@@ -109,9 +115,7 @@ class BudgetsView(APIView):
             
             # user의 total 변화에 반영
             new_total = user.total - change_amount
-            total_serializer = UserTotalUpdateSerializer(data={"total": new_total})
-            if total_serializer.is_valid():
-                user = total_serializer.update(user, total_serializer.validated_data)
+            update_user_parameter(total=new_total, satrt=start_date)
             
             return Response({"message": "success!", "data": f"Budget[{instance.pk}] - category{instance.category.name} is changed.({instance.amount})"}, status=status.HTTP_200_OK)
 
@@ -134,11 +138,10 @@ class BudgetRecommendView(APIView):
         '''
         total = request.data.get("total")
         style = request.data.get("style", REC_LIST[0])
+        start_date = request.data.get("start_date", None)
         user = request.user
         result = []
-        total_serializer = UserTotalUpdateSerializer(data={"total": total})
-        if total_serializer.is_valid():
-            user = total_serializer.update(user, total_serializer.validated_data)
+        update_user_parameter(total=total, satrt=start_date)
             
         if style in REC_LIST:
             for budget in BUDGET_REC_RATIO.get(style):
@@ -173,6 +176,7 @@ class BudgetRecommendView(APIView):
         
         user = request.user
         data = request.data
+        start_date = data.get("start_date", None)
         new_total = data.get("total", None)
         new_style = data.get("style", None)
         queryset = Budget.objects.filter(user=user.pk)
@@ -182,9 +186,7 @@ class BudgetRecommendView(APIView):
             return Response({"message": f"failed! {user.username} has no budgets"}, status=status.HTTP_404_NOT_FOUND)
         
         if new_total is not None:
-            total_serializer = UserTotalUpdateSerializer(data={"total": new_total})
-            if total_serializer.is_valid():
-                user = total_serializer.update(user, total_serializer.validated_data)
+            update_user_parameter(total=new_total, satrt=start_date)
         
         if new_style in REC_LIST:
             update_list = BUDGET_REC_RATIO[new_style]

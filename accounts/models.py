@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser,  BaseUserManager
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 
 class CustomUserManager(BaseUserManager):
@@ -25,6 +26,7 @@ class User(AbstractUser):
     email = None
     updated_at = models.DateTimeField(auto_now=True)
     total = models.PositiveIntegerField(default=0)
+    start_date = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1), MaxValueValidator(30)])
     
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = []
