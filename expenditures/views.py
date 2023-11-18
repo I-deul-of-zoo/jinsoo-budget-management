@@ -2,6 +2,7 @@ import math
 import copy
 from pytz import timezone
 from datetime import date, datetime, timedelta
+import calendar
 
 from django.shortcuts import render, get_object_or_404
 
@@ -23,7 +24,7 @@ CAT_STAT_FORM = {"count":0, "sum":0}
 UNDER = 0.95
 UPPER = 1.05
 
-def statistic_info(expenditure_set)-> dict:
+def get_expend_statistics(expenditure_set)-> dict:
         result = dict()
         temp_list = list()
         for keyname in CATEGORIES.keys():
@@ -41,6 +42,10 @@ def statistic_info(expenditure_set)-> dict:
         result["total_sum"] = total
         return result
     
+
+def get_base_datetime(today: datetime, user_start_date:int)->datetime:
+    return datetime(year=today.year, month=today.month, day=user_start_date)
+
 
 class ExpenditureListCreateView(APIView):
     permission_classes = [IsAuthenticated, ]
@@ -72,7 +77,7 @@ class ExpenditureListCreateView(APIView):
         data_result = serializer.data
         
         ## 리스트 통계 데이터 생성
-        static_result = statistic_info(queryset)
+        static_result = get_expend_statistics(queryset)
         
         return Response({"message": "success!", "data": data_result, "static_data":static_result}, status=status.HTTP_200_OK)
     
@@ -162,42 +167,57 @@ class ExpenditureRecommendToday(APIView):
         result = dict()
         
         ## TODO - 예산목록과 지출목록을 호출하는 부분을 모듈화해서 호출하는게 좋아보입니다.
-        end = date.today()
-        start = date(year=end.year, month=end.month, day=user.start_date)
-        end_date = datetime.strptime(str(end), "%Y-%m-%d")
-        start_date = datetime.strptime(str(start), '%Y-%m-%d')
-        # end_date.astimezone(timezone(settings.TIME_ZONE))
-        # start_date.astimezone(timezone(settings.TIME_ZONE))
-        current = end_date - start_date # 15 days. 15보려면 current.days
+        start = date.today()
+        period = calendar.monthrange(start.year, start.month)[1]
+        base_dt = get_base_datetime(start, user.start_date)
+        today_dt = datetime.strptime(str(start), "%Y-%m-%d")
+        current = today_dt - base_dt # 현재일-1
         
         budget_set = Budget.objects.filter(user=user.pk)
-        expend_set = Expenditure.objects.filter(user=user.pk, created_at__gte=start_date, created_at__lt=end_date)
+        expend_set = Expenditure.objects.filter(
+            user=user.pk, 
+            created_at__gte=base_dt, 
+            created_at__lt=today_dt)
         
         ## 리스트 통계 데이터 생성
-        static_result = statistic_info(expend_set)
+        static_result = get_expend_statistics(expend_set)
         
         ## 총 예산에 대한 현재 결과
-        budget_per_date = user.total/30
-        aspect_expend_today = budget_per_date * current.days
-        remain = user.total - aspect_expend_today
-        recommend_budget = math.floor((remain/(30 - current.days - 1))/100)*100
-        result["today_total"] = recommend_budget
+        remain = user.total - static_result["total_sum"]
+        recommend_budget = math.floor((remain/(period - current.days - 1))/100)*100
+        result["today_recommand"] = recommend_budget
+        result["period"] = f"{base_dt} ~ {today_dt}"
         
         ## 각 카테고리 예산에 대한 결과
+        calib_minimum = 0
+        cat_exp_list = static_result["category_group"]
         for b in budget_set:
-            cat_per_date = b.amount/30
-            aspect_cat_today = cat_per_date * current.days
-            cat_remain = b.amount - aspect_cat_today
-            cat_recommend_budget = math.floor((cat_remain/(30 - current.days - 1))/100)*100
+            cat_sum = 0
+            for cat_exp in cat_exp_list:
+                if b.category.name in cat_exp.keys():
+                    cat_sum = cat_exp[b.category.name]["sum"]
+                    
+            cat_remain = b.amount - cat_sum
+            if cat_remain < 0:
+                calib_minimum += 3330*(period - current.days)
+                cat_recommend_budget = 3330
+            else:
+                cat_recommend_budget = math.floor((cat_remain/(period - current.days))/100)*100
             result[b.category.name] = cat_recommend_budget
         
-        ## 메시지 수정
-        message = f"today({str(end)})s message: "
-        if (aspect_expend_today * UNDER) < static_result["total_sum"]:
+        result["today_recommand"] += calib_minimum
+        
+        ## 소비 현황에 대한 메시지
+        budget_per_date = user.total/period
+        aspect_expend = budget_per_date * current.days
+        
+        message = f"today({str(start)})s message: "
+        if (aspect_expend * UNDER) < static_result["total_sum"]:
             message += "very good~~! :)"
-        elif (aspect_expend_today * UNDER) <= static_result["total_sum"] and (aspect_expend_today * UPPER) <= static_result["total_sum"]:
+        elif (aspect_expend * UNDER) <= static_result["total_sum"] and (aspect_expend * UPPER) <= static_result["total_sum"]:
             message += "not bad~~ ~.~"
         else:
             message += "you have to save your money!"
             
         return Response({"message": message, "data": result}, status=status.HTTP_200_OK)
+    
