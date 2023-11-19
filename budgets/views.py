@@ -13,7 +13,7 @@ from budgets.serializers import CategorySerializer, BudgetSerializer
 
 
 
-def update_user_parameter(total, start):
+def update_user_parameter(user, total, start):
     total_serializer = UserParamUpdateSerializer(data={"total": total, "start_date": start})
     if total_serializer.is_valid():
         user = total_serializer.update(user, total_serializer.validated_data)
@@ -42,12 +42,12 @@ class BudgetsView(APIView):
         '''
         예산 종목별 금액입력
         '''
+        user = request.user
         data = request.data
         budget_list = data.get('budget_list', None)
         start_date = data.get("start_date", None)
         result = []
         total = 0
-        user = request.user
         
         ## TODO - 중복입력처리 view에서 >>  serializer에서 하는 방법 알아보기
         try:
@@ -77,7 +77,7 @@ class BudgetsView(APIView):
         # except:
         #     return Response({"message": "error", "error": serializer.errors})
         
-        update_user_parameter(total=total, satrt=start_date)
+        update_user_parameter(user=user, total=total, satrt=start_date)
 
         return Response({
             "message": "budget create success!",
@@ -94,8 +94,8 @@ class BudgetsView(APIView):
         '''
         ## 1개의 레코드만 선택적으로 수정한다고 가정.
         ## TODO - 카테고리가 없는 부분에 대해서 처리가 부족.
-        data = request.data
         user = request.user
+        data = request.data
         start_date = data.get("start_date", None)
         queryset = Budget.objects.filter(user=user.pk)
         budget_list = list(queryset)
@@ -115,7 +115,7 @@ class BudgetsView(APIView):
             
             # user의 total 변화에 반영
             new_total = user.total - change_amount
-            update_user_parameter(total=new_total, satrt=start_date)
+            update_user_parameter(user=user, total=new_total, satrt=start_date)
             
             return Response({"message": "success!", "data": f"Budget[{instance.pk}] - category{instance.category.name} is changed.({instance.amount})"}, status=status.HTTP_200_OK)
 
@@ -186,7 +186,7 @@ class BudgetRecommendView(APIView):
             return Response({"message": f"failed! {user.username} has no budgets"}, status=status.HTTP_404_NOT_FOUND)
         
         if new_total is not None:
-            update_user_parameter(total=new_total, satrt=start_date)
+            update_user_parameter(user=user, total=new_total, start=start_date)
         
         if new_style in REC_LIST:
             update_list = BUDGET_REC_RATIO[new_style]
