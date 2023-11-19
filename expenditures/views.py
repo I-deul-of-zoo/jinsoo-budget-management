@@ -24,6 +24,11 @@ CAT_STAT_FORM = {"count":0, "sum":0}
 UNDER = 0.95
 UPPER = 1.05
 
+def unpack_cat_stat(cat_static:dict)->(str,dict):
+    name = list(cat_static.keys())[0]
+    value = list(cat_static.values())[0]
+    return name, value
+
 def get_expend_statistics(expenditure_set)-> dict:
         result = dict()
         temp_list = list()
@@ -45,6 +50,53 @@ def get_expend_statistics(expenditure_set)-> dict:
 
 def get_base_datetime(today: datetime, user_start_date:int)->datetime:
     return datetime(year=today.year, month=today.month, day=user_start_date)
+
+
+def get_aspected_expenditure(user, today, period=30)->(dict,dict):
+    '''
+    어제까지의 소비 내용을 기반으로 오늘 소비 추천내용
+    '''
+    result = dict()
+    
+    base_dt = get_base_datetime(today, user.start_date)
+    today_dt = datetime.strptime(str(today), "%Y-%m-%d")
+    current = today_dt - base_dt # current.days==현재일-1
+    
+    budget_set = Budget.objects.filter(user=user.pk)
+    expend_set = Expenditure.objects.filter(
+        user=user.pk, 
+        created_at__gte=base_dt, 
+        created_at__lt=today_dt)
+    
+    ## 리스트 통계 데이터 생성
+    static_result = get_expend_statistics(expend_set)
+    
+    ## 총 예산에 대한 현재 결과
+    remain = user.total - static_result["total_sum"]
+    recommend_budget = math.floor((remain/(period - current.days - 1))/100)*100
+    result["today_recommand"] = recommend_budget
+    result["period"] = f"{base_dt} ~ {today_dt}"
+    
+    ## 각 카테고리 예산에 대한 결과
+    calib_minimum = 0
+    cat_exp_list = static_result["category_group"] # list
+    for b in budget_set:
+        cat_sum = 0
+        for cat_exp in cat_exp_list:
+            if b.category.name in cat_exp.keys():
+                cat_sum = cat_exp[b.category.name]["sum"]
+                
+        cat_remain = b.amount - cat_sum
+        if cat_remain < 0:
+            calib_minimum += (3330 + (-1 * cat_remain))
+            cat_recommend_budget = 3330
+        else:
+            cat_recommend_budget = math.floor((cat_remain/(period - current.days))/100)*100
+        result[b.category.name] = cat_recommend_budget
+    
+    result["today_recommand"] += calib_minimum
+    
+    return result, static_result
 
 
 class ExpenditureListCreateView(APIView):
@@ -167,51 +219,19 @@ class ExpenditureRecommendToday(APIView):
         result = dict()
         
         ## TODO - 예산목록과 지출목록을 호출하는 부분을 모듈화해서 호출하는게 좋아보입니다.
-        start = date.today()
-        period = calendar.monthrange(start.year, start.month)[1]
-        base_dt = get_base_datetime(start, user.start_date)
-        today_dt = datetime.strptime(str(start), "%Y-%m-%d")
-        current = today_dt - base_dt # 현재일-1
+        today = date.today()
+        period = calendar.monthrange(today.year, today.month)[1]
+        base_dt = get_base_datetime(today, user.start_date)
+        today_dt = datetime.strptime(str(today), "%Y-%m-%d")
+        current = today_dt - base_dt # current.days==현재일-1
         
-        budget_set = Budget.objects.filter(user=user.pk)
-        expend_set = Expenditure.objects.filter(
-            user=user.pk, 
-            created_at__gte=base_dt, 
-            created_at__lt=today_dt)
-        
-        ## 리스트 통계 데이터 생성
-        static_result = get_expend_statistics(expend_set)
-        
-        ## 총 예산에 대한 현재 결과
-        remain = user.total - static_result["total_sum"]
-        recommend_budget = math.floor((remain/(period - current.days - 1))/100)*100
-        result["today_recommand"] = recommend_budget
-        result["period"] = f"{base_dt} ~ {today_dt}"
-        
-        ## 각 카테고리 예산에 대한 결과
-        calib_minimum = 0
-        cat_exp_list = static_result["category_group"]
-        for b in budget_set:
-            cat_sum = 0
-            for cat_exp in cat_exp_list:
-                if b.category.name in cat_exp.keys():
-                    cat_sum = cat_exp[b.category.name]["sum"]
-                    
-            cat_remain = b.amount - cat_sum
-            if cat_remain < 0:
-                calib_minimum += 3330*(period - current.days)
-                cat_recommend_budget = 3330
-            else:
-                cat_recommend_budget = math.floor((cat_remain/(period - current.days))/100)*100
-            result[b.category.name] = cat_recommend_budget
-        
-        result["today_recommand"] += calib_minimum
+        result, static_result = get_aspected_expenditure(user=user, today=today, period=period)
         
         ## 소비 현황에 대한 메시지
         budget_per_date = user.total/period
         aspect_expend = budget_per_date * current.days
         
-        message = f"today({str(start)})s message: "
+        message = f"today({str(today)})'s message: "
         if (aspect_expend * UNDER) < static_result["total_sum"]:
             message += "very good~~! :)"
         elif (aspect_expend * UNDER) <= static_result["total_sum"] and (aspect_expend * UPPER) <= static_result["total_sum"]:
@@ -221,3 +241,44 @@ class ExpenditureRecommendToday(APIView):
             
         return Response({"message": message, "data": result}, status=status.HTTP_200_OK)
     
+
+
+class ExpenditureNotificationToday(APIView):
+    def get(self, request):
+        user = request.user
+        result = dict()
+        
+        ## TODO - 예산목록과 지출목록을 호출하는 부분을 모듈화해서 호출하는게 좋아보입니다.
+        today = date.today()
+        period = calendar.monthrange(today.year, today.month)[1]
+        base_dt = get_base_datetime(today, user.start_date)
+        today_start_dt = datetime.strptime(str(today), "%Y-%m-%d")
+        today_end_dt = today_start_dt + timedelta(days=1)
+        current = today_start_dt - base_dt
+        remain_days = period - current.days
+        
+        expend_today_set = Expenditure.objects.filter(
+            user=user.pk, 
+            created_at__gte=today_start_dt, 
+            created_at__lt=today_end_dt)
+        
+        today_static_result =get_expend_statistics(expend_today_set)
+        
+        
+        # 오늘 이전 소비를 통해 오늘 권장 소비 내용.
+        result, static_result = get_aspected_expenditure(user=user, today=today, period=period)
+        
+        rate_result = dict()
+        total_rate = math.floor(100*today_static_result["total_sum"]/result["today_recommand"])
+        
+        rate_result["total"] = total_rate
+        for cat in today_static_result["category_group"]:
+            name, value = unpack_cat_stat(cat)
+            rate = -1
+            if result.get(name, None):
+                rate = math.floor(100*value["sum"]/result[name])
+            rate_result[name] = rate
+        
+        rate_result["unit"] = "percent"
+        
+        return Response({"message": "success!", "data": rate_result, "recommend_data":result}, status=status.HTTP_200_OK)
