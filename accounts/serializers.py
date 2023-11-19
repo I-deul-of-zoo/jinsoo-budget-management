@@ -49,9 +49,18 @@ class LoginSerializer(serializers.Serializer):
 
 class UserParamUpdateSerializer(serializers.Serializer):
     total = serializers.IntegerField()
+    start = serializers.IntegerField()
     
     def update(self, instance, validated_data):
         instance.total = validated_data.get('total', instance.total)
         instance.start_date = validated_data.get('start_date', instance.total)
         instance.save()
         return instance
+    
+    def validate(self, data):
+        start = data.get('start', None)
+        total = data.get('total', None)
+        if start < 1 or start > 30:
+            raise serializers.ValidationError('start date have to be in 1~30')
+        
+        return {'total': total, 'start': start}
