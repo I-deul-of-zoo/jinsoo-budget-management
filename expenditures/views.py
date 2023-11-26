@@ -3,6 +3,7 @@ import copy
 from pytz import timezone
 from datetime import date, datetime, timedelta
 import calendar
+from dateutil.relativedelta import relativedelta
 
 from django.shortcuts import render, get_object_or_404
 
@@ -19,7 +20,7 @@ from expenditures.models import Expenditure
 from expenditures.serializers import ExpenditureSerializer, ExpenditureCreateSerializer, ExpenditureUpdateSerializer
 
 
-## constanct
+## constant
 CAT_STAT_FORM = {"count":0, "sum":0}
 UNDER = 0.95
 UPPER = 1.05
@@ -30,27 +31,28 @@ def unpack_cat_stat(cat_static:dict)->(str,dict):
     return name, value
 
 def get_expend_statistics(expenditure_set)-> dict:
-        result = dict()
-        temp_list = list()
-        for keyname in CATEGORIES.keys():
-            temp_list.append({keyname: copy.deepcopy(CAT_STAT_FORM)})
-            
-        result["category_group"] = temp_list
-        total = 0
-        for q in list(expenditure_set):
-            total += q.amount
-            for d in result["category_group"]:
-                if d.get(q.category.name, None):
-                    d[q.category.name]["count"] += 1
-                    d[q.category.name]["sum"] += q.amount
+    result = dict()
+    temp_list = list()
+    for keyname in CATEGORIES.keys():
+        temp_list.append({keyname: copy.deepcopy(CAT_STAT_FORM)})
         
-        result["total_sum"] = total
-        return result
+    result["category_group"] = temp_list
+    total = 0
+    for q in list(expenditure_set):
+        total += q.amount
+        for d in result["category_group"]:
+            if d.get(q.category.name, None):
+                d[q.category.name]["count"] += 1
+                d[q.category.name]["sum"] += q.amount
+            else:
+                d["undefiend"]["count"] += 1
+                d["undefiend"]["sum"] += q.amount
     
+    result["total_sum"] = total
+    return result
 
 def get_base_datetime(today: datetime, user_start_date:int)->datetime:
     return datetime(year=today.year, month=today.month, day=user_start_date)
-
 
 def get_aspected_expenditure(user, today, period=30)->(dict,dict):
     '''
@@ -242,7 +244,6 @@ class ExpenditureRecommendToday(APIView):
         return Response({"message": message, "data": result}, status=status.HTTP_200_OK)
     
 
-
 class ExpenditureNotificationToday(APIView):
     def get(self, request):
         user = request.user
@@ -282,3 +283,68 @@ class ExpenditureNotificationToday(APIView):
         rate_result["unit"] = "percent"
         
         return Response({"message": "success!", "data": rate_result, "recommend_data":result}, status=status.HTTP_200_OK)
+
+
+
+def set_key_order(result_list):
+    # 각 딕셔너리를 '키'를 기준으로 알파벳 순으로 정렬
+    sorted_result_list = sorted(result_list, key=lambda x: list(x.keys())[0])
+    return sorted_result_list
+
+class ExpenditureStatisticsData(APIView):
+    permission_classes = [IsAuthenticated, ]
+    
+    def get(self, request):
+        user = request.user
+        query_param = request.query_params
+        
+        today = date.today()
+        period = calendar.monthrange(today.year, today.month)[1]
+        base_dt = get_base_datetime(today, user.start_date)
+        today_dt = datetime.strptime(str(today), "%Y-%m-%d")
+        nth_day = (today_dt - base_dt).days + 1
+        
+        result = dict()
+        
+        if query_param == None:
+            query_param["type"] = "all"
+        
+        if query_param.get("type") == "month":
+            ## 지난달 n일차까지의 현황
+            last_month_base_dt = today - relativedelta(months=1)
+            last_month_day = today - relativedelta(months=1)
+            print(last_month_day)
+            
+            this_set = Expenditure.objects.filter(
+            user=user.pk, 
+            created_at__gte=base_dt, 
+            created_at__lt=base_dt+relativedelta(days=nth_day-1))
+            
+            last_set = Expenditure.objects.filter(
+            user=user.pk, 
+            created_at__gte=last_month_base_dt, 
+            created_at__lt=last_month_day)
+        
+            this_result = get_expend_statistics(this_set).get("category_group", None)
+            last_result = get_expend_statistics(last_set).get("category_group", None)
+
+            this_result = set_key_order(this_result)
+            last_result = set_key_order(last_result)
+            
+            
+            for this, last in zip(this_result, last_result):
+                this_name, this_value = unpack_cat_stat(this)
+                last_name, last_value = unpack_cat_stat(last)
+                result[this_name] = this_value/last_value * 100
+            
+        elif query_param.get("type") == "week":
+            ## 지난주 같은 요일 (7일 전)의 상황과 비교
+            pass
+        elif query_param.get("type") == "user":
+            pass
+        else:
+            #
+            pass
+        
+        
+        return Response({"message": "static data!", "data": result}, status=status.HTTP_200_OK)
