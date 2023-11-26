@@ -3,7 +3,8 @@ from expenditures.views import (
     ExpenditureView, 
     ExpenditureListCreateView, 
     ExpenditureRecommendToday, 
-    ExpenditureNotificationToday
+    ExpenditureNotificationToday,
+    ExpenditureStatisticsData,
 )
 
 app_name = "expenditures"
@@ -14,4 +15,5 @@ urlpatterns =[
     path("<int:ex_pk>/", ExpenditureView.as_view()),
     path("rec/", ExpenditureRecommendToday.as_view()),
     path("noti/", ExpenditureNotificationToday.as_view()),
+    path("statistics/", ExpenditureStatisticsData.as_view()),
 ]
